@@ -47,7 +47,7 @@ export default function ChatPage() {
   const [visibleMessageCount, setVisibleMessageCount] = useState(10); // 初始只显示10条消息
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isNewSessionLoad, setIsNewSessionLoad] = useState(true); // 标记是否为新会话加载
-  const [isInputCollapsed, setIsInputCollapsed] = useState(false); // ChatInput折叠状态
+  const [isInputCollapsed, setIsInputCollapsed] = useState(true); // ChatInput折叠状态 - 默认折叠
   
   // 消息容器引用
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -161,25 +161,7 @@ export default function ChatPage() {
     if (savedSessions) {
       try {
         const sessions = JSON.parse(savedSessions);
-        setSessions(
-          sessions.map((s: any) => ({
-            ...s,
-            createdAt: new Date(s.createdAt),
-            updatedAt: new Date(s.updatedAt),
-            messages: s.messages.map((m: any) => ({
-              ...m,
-              timestamp: new Date(m.timestamp),
-            })),
-            // 确保老会话也有默认配置
-            config: s.config || {
-              model: apiConfig.model,
-              temperature: apiConfig.temperature || 0.7,
-              maxTokens: apiConfig.maxTokens || 2000,
-              contextLimit: 10000,
-              systemPrompt: undefined
-            }
-          }))
-        );
+        // 数据迁移已由 useAdvancedStorage 自动处理，无需手动设置
       } catch (error) {
         console.error("加载会话失败:", error);
       }
@@ -235,8 +217,8 @@ export default function ChatPage() {
           localStorage.setItem("chatvortex-sessions", JSON.stringify(recentSessions));
           console.log(`✅ 已清理为最近的${recentSessions.length}个会话`);
           
-          // 更新状态
-          setSessions(recentSessions);
+          // 状态更新由 storage.refreshSessions() 处理
+          storage.refreshSessions();
           
           // 如果当前会话被清理了，重置
           if (currentSessionId && !recentSessions.some(s => s.id === currentSessionId)) {
@@ -580,6 +562,164 @@ export default function ChatPage() {
     }
   }, [currentSessionId, storage]);
 
+  // 重新生成AI消息
+  const handleRegenerateMessage = useCallback(async (messageId: string) => {
+    if (!currentSession) return;
+    
+    try {
+      setIsLoading(true);
+      
+      // 找到要重新生成的消息在数组中的位置
+      const messageIndex = currentSession.messages.findIndex(msg => msg.id === messageId);
+      if (messageIndex === -1) return;
+      
+      // 找到该消息之前的最后一个用户消息，作为重新生成的上下文
+      const previousMessages = currentSession.messages.slice(0, messageIndex);
+      
+      // 移除从该AI消息开始的所有后续消息
+      const messagesBeforeRegeneration = previousMessages;
+      
+      // 更新会话，移除要重新生成的消息及其后续消息
+      const updatedSession = {
+        ...currentSession,
+        messages: messagesBeforeRegeneration,
+        updatedAt: new Date()
+      };
+      
+      await storage.saveSession(updatedSession);
+      setCurrentSession(updatedSession);
+      
+      // 获取会话配置
+      const sessionConfig = currentSession.config || getDefaultSessionConfig();
+      
+      if (!apiConfig.apiKey) {
+        const errorMessage = "⚠️ 请先配置API Key\n\n请点击右上角的设置按钮，输入您的API Key后再开始对话。";
+        
+        const newAssistantMessage: Message = {
+          id: generateId(),
+          content: errorMessage,
+          role: "assistant",
+          timestamp: new Date(),
+          isStreaming: false,
+        };
+
+        const finalSession = {
+          ...updatedSession,
+          messages: [...updatedSession.messages, newAssistantMessage],
+          updatedAt: new Date(),
+        };
+
+        await storage.saveSession(finalSession);
+        setCurrentSession(finalSession);
+        return;
+      }
+      
+      // 创建新的AI消息用于重新生成
+      const newAssistantMessageId = generateId();
+      let newAssistantMessage: Message = {
+        id: newAssistantMessageId,
+        content: "",
+        role: "assistant",
+        timestamp: new Date(),
+        isStreaming: true,
+      };
+
+      // 添加新的空AI消息
+      let streamingSession = {
+        ...updatedSession,
+        messages: [...updatedSession.messages, newAssistantMessage],
+        updatedAt: new Date(),
+      };
+      
+      await storage.saveSession(streamingSession);
+      setCurrentSession(streamingSession);
+
+      try {
+        // 重新生成AI回复
+        await sendMessageWithSessionConfig(
+          messagesBeforeRegeneration,
+          sessionConfig,
+          apiConfig.apiKey,
+          apiConfig.baseUrl,
+          (chunk: string) => {
+            // 实时更新消息内容
+            newAssistantMessage = {
+              ...newAssistantMessage,
+              content: newAssistantMessage.content + chunk
+            };
+            
+            streamingSession = {
+              ...streamingSession,
+              messages: streamingSession.messages.map((msg) =>
+                msg.id === newAssistantMessageId ? newAssistantMessage : msg
+              ),
+              updatedAt: new Date(),
+            };
+            
+            // 实时同步到UI状态
+            setCurrentSession(streamingSession);
+            
+            // 定期保存
+            if (newAssistantMessage.content.length % 50 === 0) {
+              storage.saveSession(streamingSession);
+            }
+          }
+        );
+
+        // 标记流式接收完成
+        newAssistantMessage.isStreaming = false;
+        streamingSession = {
+          ...streamingSession,
+          messages: streamingSession.messages.map((msg) =>
+            msg.id === newAssistantMessageId ? newAssistantMessage : msg
+          ),
+          updatedAt: new Date(),
+        };
+        
+        await storage.saveSession(streamingSession);
+        setCurrentSession(streamingSession);
+        
+      } catch (apiError) {
+        console.error("❌ 重新生成失败:", apiError);
+        
+        let errorMessage = "重新生成失败";
+        if (apiError instanceof Error) {
+          if (apiError.message.includes('超时')) {
+            errorMessage = `⏰ 请求超时\n\n服务器响应时间过长，请稍后重试。`;
+          } else if (apiError.message.includes('401')) {
+            errorMessage = `🔑 API Key无效\n\n请检查您的API Key是否正确。`;
+          } else if (apiError.message.includes('403')) {
+            errorMessage = `🚫 访问被拒绝\n\n可能是权限不足或余额不足。`;
+          } else {
+            errorMessage = `🔌 连接失败\n\n${apiError.message}`;
+          }
+        }
+        
+        // 更新为错误消息
+        newAssistantMessage = {
+          ...newAssistantMessage,
+          content: errorMessage,
+          isStreaming: false
+        };
+        
+        streamingSession = {
+          ...streamingSession,
+          messages: streamingSession.messages.map((msg) =>
+            msg.id === newAssistantMessageId ? newAssistantMessage : msg
+          ),
+          updatedAt: new Date(),
+        };
+        
+        await storage.saveSession(streamingSession);
+        setCurrentSession(streamingSession);
+      }
+      
+    } catch (error) {
+      console.error("重新生成消息失败:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentSession, storage, apiConfig, getDefaultSessionConfig]);
 
   // 复制消息内容
   const handleCopyMessage = useCallback(
@@ -870,9 +1010,9 @@ export default function ChatPage() {
             let spiralX, spiralY, zOffset;
 
             if (isLatest) {
-              // 最新消息放在中心位置，根据消息数量调整位置，整体向左上移动
-              const offsetMultiplier = Math.min(messages.length / 10, 2); // 消息越多偏移越大
-              spiralX = -280 - offsetMultiplier * 20; // 向左移动更多
+              // 最新消息放在偏右位置，优化计算公式
+              const offsetMultiplier = Math.min(messages.length / 8, 1.5); // 调整范围和增长速度
+              spiralX = -50 - offsetMultiplier * 15; // 简化公式，基础位置更靠右
               spiralY = -40 + offsetMultiplier * 15; // 向上移动
               zOffset = 300; // 最高层级
             } else {
@@ -887,9 +1027,9 @@ export default function ChatPage() {
               const layerOffset = Math.floor(visibleIndex / 6) * 60;
               const waveOffset = Math.sin(visibleIndex * 0.5) * 40;
 
-              // 根据消息数量动态调整整体位置，整体向左上移动
-              const offsetMultiplier = Math.min(messages.length / 10, 2);
-              const baseOffsetX = -290 - offsetMultiplier * 25; // 向左移动更多
+              // 优化计算公式，让布局更靠近右边，简化复杂的偏移计算
+              const offsetMultiplier = Math.min(messages.length / 8, 1.5); // 更平缓的增长
+              const baseOffsetX = -80 - offsetMultiplier * 20; // 简化公式，基础位置更靠右
               const baseOffsetY = -20 + offsetMultiplier * 20; // 向上移动
 
               spiralX =
@@ -957,7 +1097,7 @@ export default function ChatPage() {
                 }
               >
                 <div
-                  className={`relative p-6 max-w-sm backdrop-blur-xl border shadow-lg transition-all duration-300 ${
+                  className={`group relative p-6 max-w-sm backdrop-blur-xl border shadow-lg transition-all duration-300 ${
                     isLatest
                       ? "cursor-pointer hover:shadow-xl"
                       : "cursor-grab active:cursor-grabbing hover:cursor-pointer"
@@ -1076,6 +1216,37 @@ export default function ChatPage() {
                         />
                       )}
                     </div>
+
+                    {/* AI消息操作按钮 */}
+                    {!isUser && !message.isStreaming && (
+                      <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRegenerateMessage(message.id);
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-300/30 rounded-md text-indigo-600 hover:text-indigo-700 text-xs font-medium transition-all duration-200"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          disabled={isLoading}
+                        >
+                          <svg 
+                            className="w-3 h-3" 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path 
+                              strokeLinecap="round" 
+                              strokeLinejoin="round" 
+                              strokeWidth={2} 
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                            />
+                          </svg>
+                          重新生成
+                        </motion.button>
+                      </div>
+                    )}
 
                     {/* 复制成功指示器 */}
                     {copiedMessageId === message.id && (
@@ -1201,7 +1372,7 @@ export default function ChatPage() {
     const aiMessages = messages.filter((m) => m.role === "assistant");
 
     return (
-      <div className="relative h-full flex justify-center pb-36" style={{ paddingTop: '82px' }}>
+      <div className="relative h-full flex justify-center" style={{ paddingTop: '102px', paddingBottom: '20px', paddingRight: '20px' }}>
         <div className="w-full max-w-6xl mx-auto flex h-full">
           {/* 左侧用户消息面板 */}
           <motion.div
@@ -1274,7 +1445,7 @@ export default function ChatPage() {
               {aiMessages.map((message, index) => (
                 <motion.div
                   key={message.id}
-                  className={`bg-gradient-to-r from-purple-600/80 to-pink-600/80 backdrop-blur-xl border border-gray-300/40 p-4 rounded-2xl text-purple-50 shadow-lg cursor-pointer hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
+                  className={`group bg-gradient-to-r from-purple-600/80 to-pink-600/80 backdrop-blur-xl border border-gray-300/40 p-4 rounded-2xl text-purple-50 shadow-lg cursor-pointer hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
                   initial={{ x: 100, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: index * 0.1 }}
@@ -1300,6 +1471,37 @@ export default function ChatPage() {
                   <div className="text-xs opacity-60 mt-2">
                     {message.timestamp.toLocaleTimeString()}
                   </div>
+
+                  {/* AI消息操作按钮 */}
+                  {!message.isStreaming && (
+                    <div className="flex items-center justify-end gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <motion.button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRegenerateMessage(message.id);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-300/30 rounded-lg text-purple-300 hover:text-purple-100 text-xs font-medium transition-all duration-200"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        disabled={isLoading}
+                      >
+                        <svg 
+                          className="w-3 h-3" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path 
+                            strokeLinecap="round" 
+                            strokeLinejoin="round" 
+                            strokeWidth={2} 
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                          />
+                        </svg>
+                        重新生成
+                      </motion.button>
+                    </div>
+                  )}
 
                   {/* 复制成功指示器 */}
                   {copiedMessageId === message.id && (
@@ -1395,7 +1597,7 @@ export default function ChatPage() {
 
                 {/* 消息卡片 */}
                 <motion.div
-                  className={`w-96 max-w-[45vw] min-w-80 timeline-message ${isLeft ? "mr-1" : "ml-1"}`}
+                  className={`group w-96 max-w-[45vw] min-w-80 timeline-message ${isLeft ? "mr-1" : "ml-1"}`}
                   data-content-length={
                     message.content.length < 100 ? "short" : 
                     message.content.length < 300 ? "medium" : "long"
@@ -1476,6 +1678,37 @@ export default function ChatPage() {
                           />
                         )}
                       </div>
+
+                      {/* AI消息操作按钮 */}
+                      {!isUser && !message.isStreaming && (
+                        <div className="flex items-center justify-end gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <motion.button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRegenerateMessage(message.id);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-300/30 rounded-lg text-purple-300 hover:text-purple-100 text-xs font-medium transition-all duration-200"
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            disabled={isLoading}
+                          >
+                            <svg 
+                              className="w-3 h-3" 
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path 
+                                strokeLinecap="round" 
+                                strokeLinejoin="round" 
+                                strokeWidth={2} 
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                              />
+                            </svg>
+                            重新生成
+                          </motion.button>
+                        </div>
+                      )}
 
                       {/* 复制成功指示器 */}
                       {copiedMessageId === message.id && (
@@ -1631,6 +1864,37 @@ export default function ChatPage() {
                         )}
                       </div>
 
+                      {/* AI消息操作按钮 */}
+                      {!isUser && !message.isStreaming && (
+                        <div className="flex items-center justify-end gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <motion.button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRegenerateMessage(message.id);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-300/30 rounded-lg text-indigo-600 hover:text-indigo-700 text-xs font-medium transition-all duration-200"
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            disabled={isLoading}
+                          >
+                            <svg 
+                              className="w-3 h-3" 
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path 
+                                strokeLinecap="round" 
+                                strokeLinejoin="round" 
+                                strokeWidth={2} 
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                              />
+                            </svg>
+                            重新生成
+                          </motion.button>
+                        </div>
+                      )}
+
                       {/* 复制成功指示器 */}
                       {copiedMessageId === message.id && (
                         <motion.div
@@ -1715,7 +1979,11 @@ export default function ChatPage() {
         initial={{ x: 0, y: 0, opacity: 1 }}
         animate={{ x: 0, y: 0, opacity: 1 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="fixed bottom-6 left-6 z-50"
+        className={`fixed bottom-6 z-50 transition-all duration-500 ease-in-out ${
+          isInputCollapsed 
+            ? "right-6" // 输入框折叠时，设置按钮移到右下角
+            : "right-6" // 输入框展开时，设置按钮也在右下角
+        }`}
       >
         <div className="group relative">
           {/* 主控制球 */}
@@ -1905,7 +2173,12 @@ export default function ChatPage() {
         initial={{ y: 100, opacity: 0 }}
         animate={isMounted ? { y: 0, opacity: 1 } : { y: 100, opacity: 0 }}
         transition={{ duration: 0.8, ease: "easeOut", delay: 0.4 }}
-        className="fixed bottom-2 right-8 z-50 w-full max-w-lg"
+        className={`fixed bottom-2 z-50 w-full transition-all duration-500 ease-in-out ${
+          isInputCollapsed 
+            ? "left-2" // 折叠时在左边
+            : "left-2" // 展开时也在左边（左下角）
+        }`}
+        style={{ maxWidth: "492px" }} // 512px - 20px = 492px
       >
         <div className={`relative ${isInputCollapsed ? '' : 'glass-effect rounded-2xl shadow-xl transition-all duration-300'}`}>
           <div
@@ -1920,6 +2193,7 @@ export default function ChatPage() {
               isLoading={isLoading}
               placeholder="输入您的消息..."
               onCollapsedChange={setIsInputCollapsed}
+              initialCollapsed={isInputCollapsed}
             />
           </div>
         </div>
