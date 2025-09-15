@@ -143,7 +143,10 @@ function SimpleMarkdownRenderer({
       )}
 
       {/* 文本内容 */}
-      <div dangerouslySetInnerHTML={{ __html: processedContent }} />
+      <div
+        className="select-text"
+        dangerouslySetInnerHTML={{ __html: processedContent }}
+      />
     </div>
   );
 }

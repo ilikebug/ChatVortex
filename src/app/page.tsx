@@ -1256,8 +1256,6 @@ export default function ChatPage() {
                       "polygon(20px 0%, 100% 0%, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0% 100%, 0% 20px)",
                     transformStyle: "preserve-3d",
                   }}
-                  onClick={() => handleCopyMessage(message.id, message.content)}
-                  title="点击复制消息内容"
                 >
                   {/* 最新消息指示器 */}
                   {isLatest && (
@@ -1320,16 +1318,47 @@ export default function ChatPage() {
                       >
                         {isUser ? "👤" : "🤖"}
                       </motion.div>
-                      <div className="text-sm font-semibold opacity-90">
-                        {isUser ? "You" : "AI Assistant"}
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold opacity-90">
+                          {isUser ? "You" : "AI Assistant"}
+                        </div>
+                        <div className="text-xs opacity-60">
+                          {message.timestamp.toLocaleTimeString()}
+                        </div>
                       </div>
-                      <div className="ml-auto text-xs opacity-60">
-                        {message.timestamp.toLocaleTimeString()}
-                      </div>
+
+                      {/* 复制按钮 */}
+                      <motion.button
+                        onClick={() =>
+                          handleCopyMessage(message.id, message.content)
+                        }
+                        className={`p-1.5 rounded-full transition-all duration-200 relative z-10 ${
+                          isUser
+                            ? "text-white/70 hover:text-white hover:bg-white/10"
+                            : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                        }`}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        title="复制消息内容"
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </motion.button>
                     </div>
 
                     <div className="relative mb-3">
-                      <div className="text-sm leading-relaxed max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                      <div className="text-sm leading-relaxed max-h-32 overflow-y-auto custom-scrollbar pr-1 select-text">
                         {isUser || !message.isStreaming ? (
                           <MessageRenderer
                             content={message.content}
@@ -1541,23 +1570,48 @@ export default function ChatPage() {
               {userMessages.map((message, index) => (
                 <motion.div
                   key={message.id}
-                  className={`bg-gradient-to-r from-cyan-600/80 to-blue-600/80 backdrop-blur-xl border border-cyan-400/40 p-4 rounded-2xl text-cyan-50 shadow-lg cursor-pointer hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
+                  className={`bg-gradient-to-r from-cyan-600/80 to-blue-600/80 backdrop-blur-xl border border-cyan-400/40 p-4 rounded-2xl text-cyan-50 shadow-lg hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
                   initial={{ x: -100, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: index * 0.1 }}
                   whileHover={{ scale: 1.02, x: 10 }}
-                  onClick={() => handleCopyMessage(message.id, message.content)}
-                  title="点击复制消息内容"
                 >
-                  <div className="text-sm leading-relaxed">
+                  <div className="text-sm leading-relaxed select-text">
                     <MessageRenderer
                       content={message.content}
                       className="prose-invert text-cyan-50"
                       images={message.images}
                     />
                   </div>
-                  <div className="text-xs opacity-60 mt-2">
-                    {message.timestamp.toLocaleTimeString()}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="text-xs opacity-60">
+                      {message.timestamp.toLocaleTimeString()}
+                    </div>
+
+                    {/* 复制按钮 */}
+                    <motion.button
+                      onClick={() =>
+                        handleCopyMessage(message.id, message.content)
+                      }
+                      className="p-1.5 rounded-full transition-all duration-200 relative z-10 text-cyan-300/70 hover:text-cyan-100 hover:bg-cyan-500/20"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      title="复制消息内容"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </motion.button>
                   </div>
 
                   {/* 复制成功指示器 */}
@@ -1599,15 +1653,13 @@ export default function ChatPage() {
               {aiMessages.map((message, index) => (
                 <motion.div
                   key={message.id}
-                  className={`group bg-gradient-to-r from-purple-600/80 to-pink-600/80 backdrop-blur-xl border border-gray-300/40 p-4 rounded-2xl text-purple-50 shadow-lg cursor-pointer hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
+                  className={`group bg-gradient-to-r from-purple-600/80 to-pink-600/80 backdrop-blur-xl border border-gray-300/40 p-4 rounded-2xl text-purple-50 shadow-lg hover:shadow-xl relative ${copiedMessageId === message.id ? "ring-2 ring-green-400 ring-opacity-75" : ""}`}
                   initial={{ x: 100, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: index * 0.1 }}
                   whileHover={{ scale: 1.02, x: -10 }}
-                  onClick={() => handleCopyMessage(message.id, message.content)}
-                  title="点击复制消息内容"
                 >
-                  <div className="text-sm leading-relaxed">
+                  <div className="text-sm leading-relaxed select-text">
                     {message.isStreaming ? (
                       <TypewriterEffect
                         text={message.content}
@@ -1623,8 +1675,35 @@ export default function ChatPage() {
                       />
                     )}
                   </div>
-                  <div className="text-xs opacity-60 mt-2">
-                    {message.timestamp.toLocaleTimeString()}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="text-xs opacity-60">
+                      {message.timestamp.toLocaleTimeString()}
+                    </div>
+
+                    {/* 复制按钮 */}
+                    <motion.button
+                      onClick={() =>
+                        handleCopyMessage(message.id, message.content)
+                      }
+                      className="p-1.5 rounded-full transition-all duration-200 relative z-10 text-purple-300/70 hover:text-purple-100 hover:bg-purple-500/20"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      title="复制消息内容"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </motion.button>
                   </div>
 
                   {/* AI消息操作按钮 */}
@@ -1804,10 +1883,6 @@ export default function ChatPage() {
                         ? "polygon(0% 0%, calc(100% - 20px) 0%, 100% 20px, 100% 100%, 0% 100%)"
                         : "polygon(20px 0%, 100% 0%, 100% 100%, 0% 100%, 0% 20px)",
                     }}
-                    onClick={() =>
-                      handleCopyMessage(message.id, message.content)
-                    }
-                    title="点击复制消息内容"
                   >
                     {/* 重力效果阴影 */}
                     <motion.div
@@ -1838,7 +1913,7 @@ export default function ChatPage() {
                         >
                           {isUser ? "👤" : "🤖"}
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <div className="text-sm font-semibold">
                             {isUser ? "You" : "AI Assistant"}
                           </div>
@@ -1846,9 +1921,38 @@ export default function ChatPage() {
                             {message.timestamp.toLocaleString()}
                           </div>
                         </div>
+
+                        {/* 复制按钮 */}
+                        <motion.button
+                          onClick={() =>
+                            handleCopyMessage(message.id, message.content)
+                          }
+                          className={`p-1.5 rounded-full transition-all duration-200 relative z-10 ${
+                            isUser
+                              ? "text-cyan-300/70 hover:text-cyan-100 hover:bg-cyan-500/20"
+                              : "text-purple-300/70 hover:text-purple-100 hover:bg-purple-500/20"
+                          }`}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          title="复制消息内容"
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                            />
+                          </svg>
+                        </motion.button>
                       </div>
 
-                      <div className="text-sm md:text-base leading-relaxed overflow-wrap-anywhere">
+                      <div className="text-sm md:text-base leading-relaxed overflow-wrap-anywhere select-text">
                         {isUser || !message.isStreaming ? (
                           <MessageRenderer
                             content={message.content}
@@ -1995,14 +2099,10 @@ export default function ChatPage() {
                           ? "0 15px 30px rgba(79, 70, 229, 0.25)"
                           : "0 15px 30px rgba(0, 0, 0, 0.08)",
                       }}
-                      onClick={() =>
-                        handleCopyMessage(message.id, message.content)
-                      }
-                      title="点击复制消息内容"
                     >
                       {/* 发光效果 */}
                       <motion.div
-                        className={`absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 ${
+                        className={`absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 pointer-events-none ${
                           isUser ? "bg-white/10" : "bg-blue-500/5"
                         }`}
                         transition={{ duration: 0.3 }}
@@ -2021,7 +2121,7 @@ export default function ChatPage() {
                         >
                           {isUser ? "👤" : "🤖"}
                         </motion.div>
-                        <div>
+                        <div className="flex-1">
                           <div
                             className={`font-semibold text-sm ${isUser ? "text-white" : "text-gray-800"}`}
                           >
@@ -2033,19 +2133,48 @@ export default function ChatPage() {
                             {message.timestamp.toLocaleTimeString()}
                           </div>
                         </div>
+
+                        {/* 复制按钮 */}
+                        <motion.button
+                          onClick={() =>
+                            handleCopyMessage(message.id, message.content)
+                          }
+                          className={`p-2 rounded-full transition-all duration-200 relative z-10 ${
+                            isUser
+                              ? "text-white/70 hover:text-white hover:bg-white/10"
+                              : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                          }`}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          title="复制消息内容"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                            />
+                          </svg>
+                        </motion.button>
                       </div>
 
                       {/* 消息内容 */}
                       <div
-                        className={`text-sm leading-relaxed ${isUser ? "text-white" : "text-gray-800"}`}
+                        className={`text-sm leading-relaxed select-text relative z-10 ${isUser ? "text-white" : "text-gray-800"}`}
                       >
                         {isUser || !message.isStreaming ? (
                           <MessageRenderer
                             content={message.content}
                             className={
                               isUser
-                                ? "prose-invert text-white"
-                                : "text-gray-800"
+                                ? "prose-invert text-white select-text"
+                                : "text-gray-800 select-text"
                             }
                             images={message.images}
                           />

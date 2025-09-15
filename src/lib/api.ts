@@ -160,7 +160,8 @@ export class ChatAPI {
             model: this.config.model,
             messages,
             temperature: this.config.temperature,
-            max_tokens: this.config.maxTokens
+            max_tokens: this.config.maxTokens,
+            baseUrl: this.config.baseUrl // 添加baseUrl
         };
 
         try {
@@ -241,7 +242,8 @@ export class ChatAPI {
                     messages,
                     temperature: this.config.temperature,
                     max_tokens: this.config.maxTokens,
-                    stream: true
+                    stream: true,
+                    baseUrl: this.config.baseUrl // 添加baseUrl
                 } as ChatCompletionRequest),
                 signal: timeoutController.signal
             })
@@ -615,7 +617,8 @@ export async function sendMessageWithSessionConfig(
         messages: trimmedMessages,
         temperature: sessionConfig.temperature,
         max_tokens: sessionConfig.maxTokens,
-        stream: !!onChunk
+        stream: !!onChunk,
+        baseUrl: baseUrl // 添加baseUrl到请求体
     };
 
     try {

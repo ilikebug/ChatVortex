@@ -42,15 +42,18 @@ export async function POST(request: NextRequest) {
             console.log('🖼️ 检测到图片消息，准备发送到V-API');
         }
 
-        // 转发请求到V-API
-        console.log('🚀 转发请求到:', 'https://api.gpt.ge/v1/chat/completions', {
+        // 从请求体中获取baseUrl，如果没有则使用默认值
+        const baseUrl = body.baseUrl || 'https://api.gpt.ge/v1';
+        const apiUrl = `${baseUrl}/chat/completions`;
+
+        console.log('🚀 转发请求到:', apiUrl, {
             stream: isStream,
             hasImages: processedBody.messages?.some((msg: any) =>
                 msg.content?.some?.((item: any) => item.type === 'image_url')
             ) || false
         });
 
-        const response = await fetch('https://api.gpt.ge/v1/chat/completions', {
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
