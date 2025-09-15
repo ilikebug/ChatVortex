@@ -9,7 +9,10 @@ export async function POST(request: NextRequest) {
             method: 'POST',
             hasAuth: !!authHeader,
             model: body.model,
-            messagesCount: body.messages?.length || 0
+            messagesCount: body.messages?.length || 0,
+            hasImages: body.messages?.some((msg: any) =>
+                msg.content?.some?.((item: any) => item.type === 'image_url')
+            ) || false
         })
 
         if (!authHeader) {
@@ -20,24 +23,40 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        // 创建25秒超时控制器（比客户端30秒稍短）
+        // 创建2分钟超时控制器
         const timeoutController = new AbortController();
         const timeoutId = setTimeout(() => {
             timeoutController.abort();
-        }, 25000);
+        }, 120000); // 2分钟超时
 
         // 检查是否是流式请求
         const isStream = body.stream === true;
-        
+
+        // 处理图片数据（如果需要的话）
+        let processedBody = body;
+
+        // 检查是否有图片需要处理
+        if (body.messages?.some((msg: any) =>
+            msg.content?.some?.((item: any) => item.type === 'image_url')
+        )) {
+            console.log('🖼️ 检测到图片消息，准备发送到V-API');
+        }
+
         // 转发请求到V-API
-        console.log('🚀 转发请求到:', 'https://api.gpt.ge/v1/chat/completions', { stream: isStream });
+        console.log('🚀 转发请求到:', 'https://api.gpt.ge/v1/chat/completions', {
+            stream: isStream,
+            hasImages: processedBody.messages?.some((msg: any) =>
+                msg.content?.some?.((item: any) => item.type === 'image_url')
+            ) || false
+        });
+
         const response = await fetch('https://api.gpt.ge/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': authHeader,
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify(processedBody),
             signal: timeoutController.signal
         })
 
@@ -60,7 +79,7 @@ export async function POST(request: NextRequest) {
         // 流式响应处理
         if (isStream) {
             console.log('🌊 开始流式响应处理');
-            
+
             // 创建可读流
             const stream = new ReadableStream({
                 start(controller) {
@@ -123,7 +142,7 @@ export async function POST(request: NextRequest) {
                     { status: 504 }
                 )
             }
-            
+
             return NextResponse.json(
                 { error: { message: `代理错误: ${error.message}` } },
                 { status: 500 }

@@ -5,6 +5,17 @@ export interface Message {
     timestamp: Date
     isTyping?: boolean
     isStreaming?: boolean // 是否正在流式输出
+    files?: File[] // 附加的文件（图片等）
+    images?: ImageData[] // 图片数据（用于显示和分析）
+}
+
+// 图片数据接口
+export interface ImageData {
+    id: string
+    name: string
+    url: string // base64 或 blob URL
+    type: string
+    size: number
 }
 
 export interface SessionConfig {

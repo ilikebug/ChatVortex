@@ -12,7 +12,14 @@ export interface APIConfig {
 
 export interface ChatCompletionMessage {
     role: 'system' | 'user' | 'assistant'
-    content: string
+    content: string | Array<{
+        type: 'text' | 'image_url'
+        text?: string
+        image_url?: {
+            url: string
+            detail?: 'low' | 'high' | 'auto'
+        }
+    }>
 }
 
 export interface ChatCompletionRequest {
@@ -47,7 +54,7 @@ export interface ChatCompletionResponse {
 export function getDefaultShortcutsConfig(): ShortcutsConfig {
     const isMac = typeof window !== 'undefined' && /macintosh|mac os x/i.test(navigator.userAgent);
     const modKey = isMac ? 'Cmd' : 'Ctrl';
-    
+
     const defaultShortcuts: KeyboardShortcut[] = [
         {
             id: 'openHistory',
@@ -157,11 +164,11 @@ export class ChatAPI {
         };
 
         try {
-            // 创建30秒超时控制器
+            // 创建2分钟超时控制器
             const timeoutController = new AbortController();
             const timeoutId = setTimeout(() => {
                 timeoutController.abort();
-            }, 30000); // 30秒超时
+            }, 120000); // 2分钟超时
 
             // 使用本地API代理，避免CORS问题
             const response = await fetch('/api/chat', {
@@ -217,11 +224,11 @@ export class ChatAPI {
         }
 
         try {
-            // 创建30秒超时控制器
+            // 创建2分钟超时控制器
             const timeoutController = new AbortController();
             const timeoutId = setTimeout(() => {
                 timeoutController.abort();
-            }, 30000);
+            }, 120000); // 2分钟超时
 
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -291,11 +298,11 @@ export class ChatAPI {
             }
         } catch (error) {
             console.error('❌ 流式请求错误:', error)
-            
+
             if (error instanceof Error && error.name === 'AbortError') {
                 throw new Error('流式请求超时（30秒），请稍后重试')
             }
-            
+
             throw error
         }
     }
@@ -317,14 +324,14 @@ export class ChatAPI {
 
 // 模型接口定义
 export interface ModelInfo {
-  id: string;
-  object: string;
-  created: number;
-  owned_by: string;
+    id: string;
+    object: string;
+    created: number;
+    owned_by: string;
 }
 
 export interface ModelsResponse {
-  data: ModelInfo[];
+    data: ModelInfo[];
 }
 
 // 模型列表缓存
@@ -334,193 +341,193 @@ const CACHE_STORAGE_KEY = 'chatvortex-models-cache';
 
 // 从localStorage加载缓存
 function loadModelsCache(): typeof modelsCache {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const cached = localStorage.getItem(CACHE_STORAGE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      // 验证缓存结构
-      if (parsed.data && parsed.timestamp && parsed.cacheKey) {
-        return parsed;
-      }
+    if (typeof window === 'undefined') return null;
+
+    try {
+        const cached = localStorage.getItem(CACHE_STORAGE_KEY);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            // 验证缓存结构
+            if (parsed.data && parsed.timestamp && parsed.cacheKey) {
+                return parsed;
+            }
+        }
+    } catch (error) {
+        console.warn('加载模型缓存失败:', error);
     }
-  } catch (error) {
-    console.warn('加载模型缓存失败:', error);
-  }
-  return null;
+    return null;
 }
 
 // 保存缓存到localStorage
 function saveModelsCache(cache: typeof modelsCache) {
-  if (typeof window === 'undefined' || !cache) return;
-  
-  try {
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
-  } catch (error) {
-    console.warn('保存模型缓存失败:', error);
-  }
+    if (typeof window === 'undefined' || !cache) return;
+
+    try {
+        localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
+    } catch (error) {
+        console.warn('保存模型缓存失败:', error);
+    }
 }
 
 // 获取可用模型列表
 export async function fetchAvailableModels(apiKey: string, baseUrl: string): Promise<ModelInfo[]> {
-  if (!apiKey) {
-    throw new Error('API Key 未配置');
-  }
-
-  // 生成缓存键
-  const cacheKey = `${apiKey.slice(-10)}_${baseUrl}`;
-  const now = Date.now();
-  
-  // 检查内存缓存
-  if (!modelsCache) {
-    modelsCache = loadModelsCache();
-  }
-  
-  // 验证缓存是否有效
-  if (modelsCache && 
-      modelsCache.cacheKey === cacheKey && 
-      (now - modelsCache.timestamp) < CACHE_DURATION) {
-    console.log('🚀 使用模型列表缓存，剩余时间:', Math.round((CACHE_DURATION - (now - modelsCache.timestamp)) / (1000 * 60 * 60)), '小时');
-    return modelsCache.data;
-  }
-
-  try {
-    const response = await fetch(`${baseUrl}/models`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`获取模型列表失败: ${response.status} ${response.statusText}`);
+    if (!apiKey) {
+        throw new Error('API Key 未配置');
     }
 
-    const data: ModelsResponse = await response.json();
-    
-    // 过滤出聊天模型（排除embedding、tts等）
-    const filteredModels = data.data.filter(model => {
-      const id = model.id.toLowerCase();
-      return (
-        (id.includes('gpt') || id.includes('claude') || id.includes('o1') || id.includes('o3') || id.includes('o4') || id.includes('chatgpt')) &&
-        !id.includes('embedding') &&
-        !id.includes('tts') &&
-        !id.includes('dall-e') &&
-        !id.includes('whisper') &&
-        !id.includes('vision') && 
-        !id.includes('image')
-      );
-    });
+    // 生成缓存键
+    const cacheKey = `${apiKey.slice(-10)}_${baseUrl}`;
+    const now = Date.now();
 
-    // 去重处理 - 以ID为准，优先选择官方提供商
-    const uniqueModels = filteredModels.reduce((acc: ModelInfo[], current) => {
-      const existing = acc.find(model => model.id === current.id);
-      if (!existing) {
-        acc.push(current);
-      } else {
-        // 如果已存在，根据提供商优先级选择更好的
-        const getProviderPriority = (ownedBy: string) => {
-          if (ownedBy === 'openai') return 1;
-          if (ownedBy === 'anthropic') return 2;
-          if (ownedBy === 'google gemini') return 3;
-          if (ownedBy === 'deepseek') return 4;
-          if (ownedBy === 'aws') return 5;
-          if (ownedBy === 'vertexai') return 6;
-          return 10; // 其他提供商
-        };
-        
-        const currentPriority = getProviderPriority(current.owned_by);
-        const existingPriority = getProviderPriority(existing.owned_by);
-        
-        if (currentPriority < existingPriority) {
-          // 用更高优先级的替换
-          const index = acc.indexOf(existing);
-          acc[index] = current;
+    // 检查内存缓存
+    if (!modelsCache) {
+        modelsCache = loadModelsCache();
+    }
+
+    // 验证缓存是否有效
+    if (modelsCache &&
+        modelsCache.cacheKey === cacheKey &&
+        (now - modelsCache.timestamp) < CACHE_DURATION) {
+        console.log('🚀 使用模型列表缓存，剩余时间:', Math.round((CACHE_DURATION - (now - modelsCache.timestamp)) / (1000 * 60 * 60)), '小时');
+        return modelsCache.data;
+    }
+
+    try {
+        const response = await fetch(`${baseUrl}/models`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error(`获取模型列表失败: ${response.status} ${response.statusText}`);
         }
-      }
-      return acc;
-    }, []);
 
-    // 按模型系列排序
-    const chatModels = uniqueModels.sort((a, b) => {
-      const getModelPriority = (id: string) => {
-        if (id.includes('gpt-5')) return 1;
-        if (id.includes('gpt-4')) return 2;
-        if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return 3;
-        if (id.includes('claude')) return 4;
-        if (id.includes('gpt-3.5')) return 5;
-        return 6;
-      };
-      
-      const priorityA = getModelPriority(a.id);
-      const priorityB = getModelPriority(b.id);
-      
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB;
-      }
-      
-      return a.id.localeCompare(b.id);
-    });
+        const data: ModelsResponse = await response.json();
 
-    // 更新缓存
-    modelsCache = {
-      data: chatModels,
-      timestamp: now,
-      cacheKey
-    };
+        // 过滤出聊天模型（排除embedding、tts等）
+        const filteredModels = data.data.filter(model => {
+            const id = model.id.toLowerCase();
+            return (
+                (id.includes('gpt') || id.includes('claude') || id.includes('o1') || id.includes('o3') || id.includes('o4') || id.includes('chatgpt')) &&
+                !id.includes('embedding') &&
+                !id.includes('tts') &&
+                !id.includes('dall-e') &&
+                !id.includes('whisper') &&
+                !id.includes('vision') &&
+                !id.includes('image')
+            );
+        });
 
-    // 保存到localStorage
-    saveModelsCache(modelsCache);
-    
-    console.log('✅ 获取模型列表成功，已缓存24小时，共', chatModels.length, '个模型');
-    return chatModels;
+        // 去重处理 - 以ID为准，优先选择官方提供商
+        const uniqueModels = filteredModels.reduce((acc: ModelInfo[], current) => {
+            const existing = acc.find(model => model.id === current.id);
+            if (!existing) {
+                acc.push(current);
+            } else {
+                // 如果已存在，根据提供商优先级选择更好的
+                const getProviderPriority = (ownedBy: string) => {
+                    if (ownedBy === 'openai') return 1;
+                    if (ownedBy === 'anthropic') return 2;
+                    if (ownedBy === 'google gemini') return 3;
+                    if (ownedBy === 'deepseek') return 4;
+                    if (ownedBy === 'aws') return 5;
+                    if (ownedBy === 'vertexai') return 6;
+                    return 10; // 其他提供商
+                };
 
-  } catch (error) {
-    console.error('❌ 获取模型列表错误:', error);
-    throw error;
-  }
+                const currentPriority = getProviderPriority(current.owned_by);
+                const existingPriority = getProviderPriority(existing.owned_by);
+
+                if (currentPriority < existingPriority) {
+                    // 用更高优先级的替换
+                    const index = acc.indexOf(existing);
+                    acc[index] = current;
+                }
+            }
+            return acc;
+        }, []);
+
+        // 按模型系列排序
+        const chatModels = uniqueModels.sort((a, b) => {
+            const getModelPriority = (id: string) => {
+                if (id.includes('gpt-5')) return 1;
+                if (id.includes('gpt-4')) return 2;
+                if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return 3;
+                if (id.includes('claude')) return 4;
+                if (id.includes('gpt-3.5')) return 5;
+                return 6;
+            };
+
+            const priorityA = getModelPriority(a.id);
+            const priorityB = getModelPriority(b.id);
+
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB;
+            }
+
+            return a.id.localeCompare(b.id);
+        });
+
+        // 更新缓存
+        modelsCache = {
+            data: chatModels,
+            timestamp: now,
+            cacheKey
+        };
+
+        // 保存到localStorage
+        saveModelsCache(modelsCache);
+
+        console.log('✅ 获取模型列表成功，已缓存24小时，共', chatModels.length, '个模型');
+        return chatModels;
+
+    } catch (error) {
+        console.error('❌ 获取模型列表错误:', error);
+        throw error;
+    }
 }
 
 // 清除模型缓存
 export function clearModelsCache(): void {
-  modelsCache = null;
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.removeItem(CACHE_STORAGE_KEY);
-      console.log('✅ 模型缓存已清除');
-    } catch (error) {
-      console.warn('清除模型缓存失败:', error);
+    modelsCache = null;
+    if (typeof window !== 'undefined') {
+        try {
+            localStorage.removeItem(CACHE_STORAGE_KEY);
+            console.log('✅ 模型缓存已清除');
+        } catch (error) {
+            console.warn('清除模型缓存失败:', error);
+        }
     }
-  }
 }
 
 // 检查缓存状态
-export function getModelsCacheInfo(): { 
-  isCached: boolean; 
-  cacheAge?: number; 
-  remainingHours?: number; 
-  totalModels?: number;
+export function getModelsCacheInfo(): {
+    isCached: boolean;
+    cacheAge?: number;
+    remainingHours?: number;
+    totalModels?: number;
 } {
-  if (!modelsCache) {
-    modelsCache = loadModelsCache();
-  }
-  
-  if (!modelsCache) {
-    return { isCached: false };
-  }
-  
-  const now = Date.now();
-  const cacheAge = now - modelsCache.timestamp;
-  const remainingTime = CACHE_DURATION - cacheAge;
-  
-  return {
-    isCached: true,
-    cacheAge: Math.round(cacheAge / (1000 * 60 * 60)),
-    remainingHours: Math.max(0, Math.round(remainingTime / (1000 * 60 * 60))),
-    totalModels: modelsCache.data.length
-  };
+    if (!modelsCache) {
+        modelsCache = loadModelsCache();
+    }
+
+    if (!modelsCache) {
+        return { isCached: false };
+    }
+
+    const now = Date.now();
+    const cacheAge = now - modelsCache.timestamp;
+    const remainingTime = CACHE_DURATION - cacheAge;
+
+    return {
+        isCached: true,
+        cacheAge: Math.round(cacheAge / (1000 * 60 * 60)),
+        remainingHours: Math.max(0, Math.round(remainingTime / (1000 * 60 * 60))),
+        totalModels: modelsCache.data.length
+    };
 }
 
 // 导出默认实例
@@ -533,12 +540,12 @@ function estimateTokens(text: string): number {
 
 // 上下文管理：根据token限制裁剪消息历史
 export function trimMessagesForContext(
-    messages: any[], 
-    maxTokens: number = 10000, 
+    messages: any[],
+    maxTokens: number = 10000,
     systemPrompt?: string
 ): ChatCompletionMessage[] {
     const apiMessages: ChatCompletionMessage[] = []
-    
+
     // 如果有系统提示，先添加
     if (systemPrompt) {
         apiMessages.push({
@@ -546,27 +553,27 @@ export function trimMessagesForContext(
             content: systemPrompt
         })
     }
-    
+
     // 从最新消息开始计算token
     let totalTokens = systemPrompt ? estimateTokens(systemPrompt) : 0
     const reversedMessages = [...messages].reverse()
-    
+
     for (const msg of reversedMessages) {
         const messageTokens = estimateTokens(msg.content)
-        
+
         // 如果加上这条消息会超过限制，就停止添加
         if (totalTokens + messageTokens > maxTokens * 0.8) { // 留20%空间给响应
             break
         }
-        
+
         apiMessages.unshift({
             role: msg.role === 'user' ? 'user' : 'assistant',
             content: msg.content
         })
-        
+
         totalTokens += messageTokens
     }
-    
+
     return apiMessages
 }
 
@@ -598,8 +605,8 @@ export async function sendMessageWithSessionConfig(
 
     // 使用上下文管理裁剪消息
     const trimmedMessages = trimMessagesForContext(
-        messages, 
-        sessionConfig.contextLimit, 
+        messages,
+        sessionConfig.contextLimit,
         sessionConfig.systemPrompt
     )
 
@@ -615,7 +622,7 @@ export async function sendMessageWithSessionConfig(
         const timeoutController = new AbortController();
         const timeoutId = setTimeout(() => {
             timeoutController.abort();
-        }, 30000);
+        }, 120000); // 2分钟超时
 
         const response = await fetch('/api/chat', {
             method: 'POST',
@@ -690,4 +697,23 @@ export async function sendMessageWithSessionConfig(
         }
         throw error
     }
+}
+
+// 检查V-API是否支持图片分析（所有模型都支持，因为V-API有独立的图片分析接口）
+export function isMultimodalModel(modelName: string): boolean {
+    // V-API平台所有模型都支持图片分析，因为有独立的图片分析接口
+    // 不需要检查具体模型，直接返回true
+    return true;
+}
+
+// 获取V-API支持的图片文件类型
+export function getSupportedFileTypes(modelName: string): string[] {
+    // V-API支持所有常见图片格式
+    return [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp'
+    ];
 }
